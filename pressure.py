@@ -2,36 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 江津区气压采集 + 曲线绘制
-=========================================================
-数据源：Open-Meteo（免 API Key，公开接口）
-    https://api.open-meteo.com/v1/forecast
-    变量：surface_pressure（本站气压 / 地面气压，hPa）
-          pressure_msl   （海平面气压，hPa，便于和天气图对比）
-    原生时间分辨率：15 分钟（直接对齐，无需插值）
-
-用法
----------------------------------------------------------
-  python pressure.py                  # 抓 72 小时，页面默认显示 24 小时
-  python pressure.py --view 72        # 页面默认显示 72 小时
-  python pressure.py --view 6         # 页面默认显示 6 小时
-  python pressure.py --fetch-hours 2  # 只抓最近 2 小时（有档案累积时）
-  python pressure.py --watch          # 常驻：每 15 分钟抓一次并刷新图
-  python pressure.py --plot-only      # 不联网，用已有 CSV 重画
-  python pressure.py --png            # 额外输出 PNG（需 matplotlib）
-
-页面上的「6 / 24 / 72 小时」按钮可随时切换，数据已一次性嵌入，切换不联网。
-
-产物
----------------------------------------------------------
-  data/pressure.csv     时间序列（追加、自动去重）
-  output/pressure.html  交互式曲线图（单文件，可离线打开）
-  output/pressure.png   静态图（仅 --png 且装了 matplotlib）
-
-说明
----------------------------------------------------------
-  * surface_pressure 随海拔变化：江津城区海拔约 260 m，故本站气压约 980 hPa，
-    这是正常值；要跟天气预报里的 1013 比，请看 pressure_msl。
-  * 全部逻辑只用 Python 标准库，不需要 pip install。
 """
 
 from __future__ import annotations
