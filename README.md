@@ -22,6 +22,21 @@ python pressure.py --png           # 额外输出 PNG（需 matplotlib）
 
 页面上有 **6 / 24 / 72 小时** 三个切换按钮：数据一次性嵌进 HTML，切换不联网。
 
+## 长江水位（钓二嘴）
+
+页面下半部分是 **钓二嘴（长江，大渡口区，站号 60105000）** 的水位曲线，数据来自
+[重庆市水文监测总站](https://cqsw.slj.cq.gov.cn/hydrology/v2/)。
+
+```bash
+python level.py            # 抓一次并落盘
+python level.py --show     # 只看已有档案
+```
+
+- 接口 `POST /hydrologyapi/stRiverR/getRiver` 返回**全部 398 个河道站的最新值**，**没有历史序列**；
+- 所以按天存档：`data/level/YYYY-MM-DD.csv`，每小时一行，按时间戳去重；
+- 站点整点更新，同一小时内重复运行不会产生新行；
+- 云端由 workflow 把新增行提交回仓库（`[skip ci]` + `paths-ignore: data/**`，不会自触发）。
+
 Windows 双击：`run_once.bat`（抓一次）/ `run_watch.bat`（常驻）。
 
 > ⚠️ **改 `.bat` 时必须保持「纯 ASCII + CRLF」**。cmd 在 `chcp` 生效前就按系统 OEM 代码页（简中为 936/GBK）逐字节解析批处理文件，UTF-8 中文会被拆成乱码，进而把 `if (...)` 块、`echo` 行解析崩掉——症状是 `'cho' 不是内部或外部命令`、`can't open file '...\('`。日志文案请写在 Python 里，`.bat` 只留英文。

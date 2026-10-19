@@ -50,6 +50,11 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Sequence, Tuple
 
+try:                                    # 水位模块（可选，缺失时页面只显示气压）
+    import level as level_mod
+except Exception:                       # noqa: BLE001
+    level_mod = None
+
 # ----------------------------------------------------------------------------
 # 配置
 # ----------------------------------------------------------------------------
@@ -289,7 +294,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 __REFRESH__
-<title>__PLACE__ · 气压曲线</title>
+<title>__PLACE__ · 气压与长江水位</title>
 <style>
   :root{
     --bg:#0e1116; --panel:#151a21; --line:#232a33; --grid:#1e252e;
@@ -328,11 +333,14 @@ __REFRESH__
   .tip b{color:var(--accent);font-size:15px}
   footer{color:var(--dim);font-size:11.5px;margin-top:14px;line-height:1.8;display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
   .empty{padding:80px 0;text-align:center;color:var(--dim)}
+  .sec{margin-top:30px;padding-top:22px;border-top:1px solid var(--line)}
+  .sec h2{font-size:15px;font-weight:600;letter-spacing:.3px}
+  .sec .sub2{color:var(--dim);font-size:12px;line-height:1.7;margin:5px 0 12px}
 </style>
 </head>
 <body>
 <header>
-  <h1>__PLACE__ · 气压曲线<span>间隔 __STEP__ 分钟</span></h1>
+  <h1>__PLACE__ · 气压与长江水位<span>间隔 __STEP__ 分钟</span></h1>
   <div class="sub">
     坐标 __LAT__°N, __LON__°E　海拔 __ELEV__ m<br>
     数据源 Open-Meteo（15 分钟原生分辨率）<br>
@@ -360,6 +368,16 @@ __REFRESH__
   <div class="tip" id="tip"></div>
 </div>
 
+<section class="sec" id="lsec">
+  <h2>钓二嘴 · 长江水位</h2>
+  <p class="sub2">__LSUB__</p>
+  <div class="cards" id="lc"></div>
+  <div class="wrap" id="wrap2">
+    <canvas id="cv2"></canvas>
+    <div class="tip" id="tip2"></div>
+  </div>
+</section>
+
 <footer>
   <div>3 小时变压看“在变”，24 小时变压看“变到哪”——后者更接近鱼实际感受到的天气过程。</div>
   <div>鼠标移动查看逐点数值 · 数据源 Open-Meteo</div>
@@ -367,6 +385,7 @@ __REFRESH__
 
 <script>
 const DATA = __DATA__;
+const LEVEL = __LEVEL__;
 const META = __META__;
 const COLORS = {s:"#4ea1ff", m:"#f0a35e"};
 let KEY = "s";
@@ -575,8 +594,168 @@ document.querySelectorAll("[data-w]").forEach(b => {
   if (parseInt(b.dataset.w, 10) === WIN) b.classList.add("on");
 });
 
-window.addEventListener("resize", draw);
+// ===== 水位（钓二嘴 · 长江）=====
+const lcv = document.getElementById("cv2");
+const lctx = lcv ? lcv.getContext("2d") : null;
+const lwrap = document.getElementById("wrap2");
+const ltip = document.getElementById("tip2");
+let lgeom = null;
+
+function lpts(){
+  return LEVEL.filter(d => d.z !== null && d.z !== undefined)
+              .map(d => ({t:new Date(d.t.replace(" ","T")), v:d.z}));
+}
+
+function drawLevel(){
+  if (!lctx) return;
+  const dpr = window.devicePixelRatio || 1;
+  const W = lwrap.clientWidth - 12, H = 300;
+  lcv.width = W * dpr; lcv.height = H * dpr;
+  lcv.style.width = W + "px"; lcv.style.height = H + "px";
+  lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  lctx.clearRect(0, 0, W, H);
+
+  const P = lpts();
+  if (!P.length){
+    lctx.fillStyle="#8b97a6"; lctx.font="14px system-ui"; lctx.textAlign="center";
+    lctx.fillText("暂无水位数据（首次采集后约 1 小时出现第 2 个点）", W/2, H/2);
+    lgeom = null; return;
+  }
+
+  const pad = {l:62, r:22, t:22, b:36};
+  const iw = W - pad.l - pad.r, ih = H - pad.t - pad.b;
+
+  let vmin = Math.min(...P.map(p=>p.v)), vmax = Math.max(...P.map(p=>p.v));
+  if (vmax - vmin < 0.4){ const mid=(vmax+vmin)/2; vmin=mid-0.2; vmax=mid+0.2; }
+  const stepY = niceStep((vmax-vmin)/5);
+  const y0 = Math.floor(vmin/stepY)*stepY - stepY*0.35;
+  const y1 = Math.ceil(vmax/stepY)*stepY + stepY*0.35;
+
+  const t0 = P[0].t.getTime(), t1 = P[P.length-1].t.getTime();
+  const X = t => pad.l + (t1===t0 ? iw/2 : (t-t0)/(t1-t0)*iw);
+  const Y = v => pad.t + (y1-v)/(y1-y0)*ih;
+
+  lctx.font = "12px ui-monospace,Consolas,monospace";
+  lctx.textAlign = "right"; lctx.textBaseline = "middle";
+  for (let v = Math.ceil(y0/stepY)*stepY; v <= y1; v += stepY){
+    const y = Y(v);
+    lctx.strokeStyle = "#1e252e"; lctx.lineWidth = 1;
+    lctx.beginPath(); lctx.moveTo(pad.l, y+.5); lctx.lineTo(pad.l+iw, y+.5); lctx.stroke();
+    lctx.fillStyle = "#8b97a6";
+    lctx.fillText(v.toFixed(stepY < 1 ? 2 : 0), pad.l - 10, y);
+  }
+
+  lctx.textAlign = "center"; lctx.textBaseline = "top";
+  const spanH = (t1 - t0) / 3600e3;
+  const tickH = spanH <= 30 ? 3 : spanH <= 96 ? 6 : 24;
+  const tickMs = tickH * 3600e3;
+  const anchor = new Date(t0); anchor.setHours(0,0,0,0);
+  let tt = anchor.getTime();
+  while (tt < t0) tt += tickMs;
+  while (tt <= t1){
+    const x = X(tt), d = new Date(tt);
+    lctx.strokeStyle = "#1a2029";
+    lctx.beginPath(); lctx.moveTo(x+.5, pad.t); lctx.lineTo(x+.5, pad.t+ih); lctx.stroke();
+    lctx.fillStyle = "#7b8794";
+    lctx.fillText(String(d.getHours()).padStart(2,"0") + ":00", x, pad.t + ih + 9);
+    if (d.getHours() === 0){
+      lctx.fillStyle = "#a9b6c5";
+      lctx.fillText((d.getMonth()+1) + "/" + d.getDate(), x, pad.t + ih + 24);
+    }
+    tt += tickMs;
+  }
+
+  const grad = lctx.createLinearGradient(0, pad.t, 0, pad.t + ih);
+  grad.addColorStop(0, "rgba(56,207,160,.24)");
+  grad.addColorStop(1, "rgba(56,207,160,0)");
+  lctx.beginPath();
+  lctx.moveTo(X(P[0].t.getTime()), Y(P[0].v));
+  for (let i=1;i<P.length;i++) lctx.lineTo(X(P[i].t.getTime()), Y(P[i].v));
+  lctx.lineTo(X(P[P.length-1].t.getTime()), pad.t+ih);
+  lctx.lineTo(X(P[0].t.getTime()), pad.t+ih);
+  lctx.closePath(); lctx.fillStyle = grad; lctx.fill();
+
+  lctx.beginPath();
+  lctx.moveTo(X(P[0].t.getTime()), Y(P[0].v));
+  for (let i=1;i<P.length;i++) lctx.lineTo(X(P[i].t.getTime()), Y(P[i].v));
+  lctx.strokeStyle = "#38cfa0"; lctx.lineWidth = 2.1;
+  lctx.lineJoin = "round"; lctx.lineCap = "round";
+  lctx.shadowColor = "rgba(56,207,160,.45)"; lctx.shadowBlur = 10;
+  lctx.stroke(); lctx.shadowBlur = 0;
+
+  const last = P[P.length-1];
+  const lx = X(last.t.getTime()), ly = Y(last.v);
+  lctx.beginPath(); lctx.arc(lx, ly, 4.5, 0, Math.PI*2);
+  lctx.fillStyle = "#38cfa0"; lctx.fill();
+  lctx.beginPath(); lctx.arc(lx, ly, 9, 0, Math.PI*2);
+  lctx.fillStyle = "rgba(56,207,160,.18)"; lctx.fill();
+
+  lgeom = {P, X, Y, pad, iw, ih, W, H};
+}
+
+function lcards(){
+  const P = lpts();
+  const box = document.getElementById("lc");
+  if (!box) return;
+  if (!P.length){
+    box.innerHTML = '<div class="card"><div class="k">当前水位</div><div class="v">暂无<small>m</small></div></div>';
+    return;
+  }
+  const cur = P[P.length-1].v, end = P[P.length-1].t.getTime();
+  function delta(h){
+    const from = end - h*3600e3;
+    let ref = P[0];
+    for (const p of P){ if (p.t.getTime() <= from) ref = p; else break; }
+    return cur - ref.v;
+  }
+  const d24 = delta(24);
+  const cls = v => v >= 0.02 ? "up" : v <= -0.02 ? "down" : "flat";
+  const fmt = v => (v>=0?"+":"") + v.toFixed(2);
+  const mx = Math.max(...P.map(p=>p.v)), mn = Math.min(...P.map(p=>p.v));
+
+  box.innerHTML = `
+    <div class="card"><div class="k">当前水位</div><div class="v">${cur.toFixed(2)}<small>m</small></div></div>
+    <div class="card"><div class="k">24 小时涨落</div><div class="v ${cls(d24)}">${fmt(d24)}<small>m</small></div></div>
+    <div class="card"><div class="k">最高 / 最低</div><div class="v">${mx.toFixed(2)} / ${mn.toFixed(2)}<small>m</small></div></div>
+    <div class="card"><div class="k">变幅</div><div class="v">${(mx-mn).toFixed(2)}<small>m</small></div></div>
+    <div class="card"><div class="k">数据点</div><div class="v">${P.length}<small>个</small></div></div>`;
+}
+
+if (lcv){
+  lcv.addEventListener("mousemove", e => {
+    if (!lgeom) return;
+    const r = lcv.getBoundingClientRect();
+    const mx = e.clientX - r.left;
+    const {P, X, Y} = lgeom;
+    let best = 0, bd = Infinity;
+    P.forEach((p,i) => { const d = Math.abs(X(p.t.getTime()) - mx); if (d < bd){ bd = d; best = i; } });
+    const p = P[best], x = X(p.t.getTime()), y = Y(p.v);
+
+    drawLevel();
+    const g = lgeom;
+    lctx.strokeStyle = "rgba(160,180,200,.35)"; lctx.lineWidth = 1;
+    lctx.setLineDash([4,4]);
+    lctx.beginPath(); lctx.moveTo(x+.5, g.pad.t); lctx.lineTo(x+.5, g.pad.t+g.ih); lctx.stroke();
+    lctx.setLineDash([]);
+    lctx.beginPath(); lctx.arc(x, y, 4, 0, Math.PI*2);
+    lctx.fillStyle = "#0e1116"; lctx.fill();
+    lctx.strokeStyle = "#38cfa0"; lctx.lineWidth = 2; lctx.stroke();
+
+    const ts = p.t.toLocaleString("zh-CN",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+    ltip.innerHTML = `${ts}<br><b>${p.v.toFixed(2)}</b> m`;
+    ltip.style.opacity = 1;
+    const tw = ltip.offsetWidth;
+    let left = x + 14;
+    if (left + tw > g.W - 8) left = x - tw - 14;
+    ltip.style.left = left + "px";
+    ltip.style.top = Math.max(8, y - 52) + "px";
+  });
+  lcv.addEventListener("mouseleave", () => { ltip.style.opacity = 0; drawLevel(); });
+}
+
+window.addEventListener("resize", () => { draw(); drawLevel(); });
 cards(); draw();
+lcards(); drawLevel();
 </script>
 </body>
 </html>
@@ -584,7 +763,8 @@ cards(); draw();
 
 
 def render_html(path: str, rows: Sequence[dict], meta: dict, step: int = SAMPLE_MIN,
-                refresh: int = 0, view: int = 24) -> None:
+                refresh: int = 0, view: int = 24,
+                level_rows: Sequence[dict] = (), level_note: str = "") -> None:
     data = [
         {
             "t": r["t"].strftime("%Y-%m-%d %H:%M"),
@@ -603,6 +783,12 @@ def render_html(path: str, rows: Sequence[dict], meta: dict, step: int = SAMPLE_
         "source": "Open-Meteo",
     }
 
+    level = [
+        {"t": r["t"].strftime("%Y-%m-%d %H:%M"), "z": r["z"]}
+        for r in level_rows
+    ]
+    sub = level_note or "大渡口区 · 站号 60105000 · 每小时整点更新 · 数据源 重庆市水文监测总站"
+
     html = (HTML_TEMPLATE
             .replace("__PLACE__", PLACE)
             .replace("__REFRESH__", f'<meta http-equiv="refresh" content="{refresh}">'
@@ -613,6 +799,8 @@ def render_html(path: str, rows: Sequence[dict], meta: dict, step: int = SAMPLE_
             .replace("__STEP__", str(step))
             .replace("__VIEW__", str(view))
             .replace("__GEN__", m["generated"])
+            .replace("__LSUB__", sub)
+            .replace("__LEVEL__", json.dumps(level, ensure_ascii=False, separators=(",", ":")))
             .replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))
             .replace("__META__", json.dumps(m, ensure_ascii=False)))
 
@@ -682,6 +870,21 @@ def render_png(path: str, rows: Sequence[dict], key: str = "s") -> bool:
 # ----------------------------------------------------------------------------
 # 主流程
 # ----------------------------------------------------------------------------
+def _level_data(args, online: bool = True) -> Tuple[List[dict], str]:
+    """返回 (水位序列, 副标题)。失败不抛异常——页面照常出气压。"""
+    if getattr(args, "level_off", False) or level_mod is None:
+        return [], "水位模块未启用"
+    note = ""
+    if online:
+        if level_mod.sync(args.level_dir) is None:
+            note = "本次抓取失败，显示的是已有档案 · 数据源 重庆市水文监测总站"
+    rows = level_mod.load_all(args.level_dir, days=args.level_days)
+    if not note:
+        note = (f"{level_mod.DISTRICT} · 站号 {level_mod.STCD} · 每小时整点更新 · "
+                f"数据源 重庆市水文监测总站")
+    return rows, note
+
+
 def run_once(args, base: Optional[List[dict]] = None) -> List[dict]:
     rows, meta = fetch(args.fetch_hours)
     grid = resample(rows, args.interval)
@@ -692,7 +895,9 @@ def run_once(args, base: Optional[List[dict]] = None) -> List[dict]:
     # CSV 是长期档案（全部保留），曲线只画请求窗口
     cut = now_local() - timedelta(hours=args.hours)
     window = [r for r in merged if r["t"] >= cut] or merged
-    render_html(args.html, window, meta, args.interval, args.refresh, args.view)
+    level_rows, level_note = _level_data(args)
+    render_html(args.html, window, meta, args.interval, args.refresh, args.view,
+                level_rows, level_note)
 
     st = stats(window, args.var)
     if st:
@@ -736,6 +941,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                     help="HTML 自动刷新秒数（常驻模式默认 300，普通模式默认关闭）")
     ap.add_argument("--csv", default=os.path.join(DATA_DIR, "pressure.csv"))
     ap.add_argument("--html", default=os.path.join(OUT_DIR, "pressure.html"))
+    ap.add_argument("--level-dir", default=os.path.join(DATA_DIR, "level"),
+                    help="水位按天存档目录，默认 data/level")
+    ap.add_argument("--level-days", type=int, default=14,
+                    help="水位图回溯天数，默认 14")
+    ap.add_argument("--level-off", action="store_true", help="不抓也不画水位")
     args = ap.parse_args(argv)
 
     args.hours = max(1, min(args.hours, MAX_HOURS))
@@ -757,8 +967,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         window = [r for r in rows if r["t"] >= cut]
         if not window:                      # 档案比窗口还旧，退回全部
             window = rows
+        level_rows, level_note = _level_data(args, online=False)
         render_html(args.html, window, {"lat": LAT, "lon": LON, "elevation": None},
-                    args.interval, args.refresh, args.view)
+                    args.interval, args.refresh, args.view, level_rows, level_note)
         st = stats(window, args.var)
         print(f"  {st['n']} 点 · {st['first']:%m-%d %H:%M} → {st['last']:%m-%d %H:%M}")
         print(f"  → {args.html}")

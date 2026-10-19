@@ -7,10 +7,12 @@ on:
     - cron: "*/15 * * * *"      # UTC，但每 15 分钟与时区无关
   push:                         # 改代码/首次推送时立即跑一轮，不用等 cron
     branches: [main]
+    paths-ignore:
+      - 'data/**'               # 机器人自己提交的数据不再触发，避免死循环
   workflow_dispatch:            # 支持手动点一下立即跑
 
 permissions:
-  contents: read
+  contents: write        # 需要把水位存档提交回仓库
   pages: write
   id-token: write
 
@@ -25,6 +27,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # 下面要 rebase 后提交水位存档
 
       - uses: actions/setup-python@v5
         with:
@@ -47,6 +51,23 @@ jobs:
           test -s _site/index.html || { echo "::error::HTML 未生成"; exit 1; }
           grep -q '"s":' _site/index.html || { echo "::error::HTML 里没有数据点"; exit 1; }
           ls -lh _site/index.html
+
+      # 水位接口只给「最新值」，没有历史序列 —— 只能每次落盘并按天提交回仓库。
+      # 每小时才更新一次，所以绝大多数运行不会产生提交（git status 为空就跳过）。
+      - name: Persist water level archive
+        run: |
+          set -e
+          if [ -z "$(git status --porcelain data/level)" ]; then
+            echo "水位无新增，跳过提交"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/level
+          git commit -m "data(level): $(date -u +%Y-%m-%dT%H:%MZ) [skip ci]"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
 
       - uses: actions/configure-pages@v5
 
