@@ -1,0 +1,9 @@
+# 本地环境
+.venv/
+__pycache__/
+*.pyc
+
+# 本地生成的产物（云端用 Pages artifact 部署，不进仓库）
+_site/
+data/pressure.csv
+output/

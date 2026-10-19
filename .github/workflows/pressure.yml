@@ -1,0 +1,62 @@
+name: pressure
+
+# 每 15 分钟抓一次气压，渲染成 HTML 并发布到 GitHub Pages。
+# 不往仓库里写任何文件（用 Pages 的 artifact 部署），所以不会产生 96 次/天的提交历史。
+on:
+  schedule:
+    - cron: "*/15 * * * *"      # UTC，但每 15 分钟与时区无关
+  workflow_dispatch:            # 支持手动点一下立即跑
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 串行执行，避免上一次还没部署完就叠上来
+concurrency:
+  group: pressure-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # 纯标准库，不需要 pip install；PNG 依赖 matplotlib，云端不装（省 30 秒/次）
+      - name: Fetch and render
+        env:
+          TZ: Asia/Shanghai
+        run: |
+          python pressure.py \
+            --hours 24 \
+            --interval 15 \
+            --html _site/index.html \
+            --csv "$RUNNER_TEMP/pressure.csv"
+
+      - name: Sanity check
+        run: |
+          test -s _site/index.html || { echo "::error::HTML 未生成"; exit 1; }
+          grep -q '"s":' _site/index.html || { echo "::error::HTML 里没有数据点"; exit 1; }
+          ls -lh _site/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
