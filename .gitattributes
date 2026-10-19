@@ -1,0 +1,5 @@
+# 统一换行，避免跨机器 checkout 后 .bat 变成 LF 又被 cmd 解析崩掉
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
