@@ -41,6 +41,8 @@ DISTRICT = "大渡口区"
 TIMEOUT = 30
 RETRIES = 3
 
+LAST_ERROR = ""          # 最近一次失败原因，页面会显示出来便于排错
+
 
 # ----------------------------------------------------------------------------
 # 抓数
@@ -137,12 +139,15 @@ def save(root: str, row: Dict) -> bool:
 
 def sync(root: str = LEVEL_DIR, quiet: bool = False) -> Optional[Dict]:
     """抓一次 → 落盘 → 返回最新记录；失败返回 None（不抛，页面照常出）。"""
+    global LAST_ERROR
     try:
         row = fetch_latest()
     except Exception as exc:  # noqa: BLE001
+        LAST_ERROR = f"{type(exc).__name__}: {exc}"
         if not quiet:
             print(f"  × 水位：{exc}")
         return None
+    LAST_ERROR = ""
     added = save(root, row)
     if not quiet:
         print(f"  水位 {ST_NAME} {row['z']:.2f} m @ {row['t']:%m-%d %H:%M}"

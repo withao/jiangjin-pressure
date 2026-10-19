@@ -379,7 +379,8 @@ __REFRESH__
 </section>
 
 <footer>
-  <div>3 小时变压看“在变”，24 小时变压看“变到哪”——后者更接近鱼实际感受到的天气过程。</div>
+  <div>3 小时变压看“在变”，24 小时变压看“变到哪”，24 小时路程看“来回折腾了多少”——鱼感受的是后者。</div>
+  <div>净变化小但路程大（来回型）不等于平稳：那是先降后升或先升后降，鱼照样停口。</div>
   <div>鼠标移动查看逐点数值 · 数据源 Open-Meteo</div>
 </footer>
 
@@ -526,6 +527,13 @@ function cards(){
     for (const p of A){ if (p.t.getTime() <= from) ref = p; else break; }
     return cur - ref.v;
   }
+  // 24 小时“路程”= Σ|ΔP|，即鱼这 24 小时里实际经历的起伏总量
+  // 净变化小、路程大 = 先降后升/先升后降的来回型，鱼并不好受
+  const from24 = end - 24*3600e3;
+  const seg24 = A.filter(p => p.t.getTime() >= from24);
+  let path24 = 0;
+  for (let i = 1; i < seg24.length; i++) path24 += Math.abs(seg24[i].v - seg24[i-1].v);
+
   const d3 = delta(3), d24 = delta(24);
   const cls = v => v >= 1.0 ? "up" : v <= -1.0 ? "down" : "flat";
   const word = v => v >= 1.0 ? "升压" : v <= -1.0 ? "降压" : "少变";
@@ -533,12 +541,19 @@ function cards(){
   const mx = Math.max(...P.map(p=>p.v)), mn = Math.min(...P.map(p=>p.v));
   const unit = "<small>hPa</small>";
 
+  // 形状判读：路程 / 净位移 ≥3 说明来回折返，单向型则接近 1
+  const ratio = path24 / Math.max(Math.abs(d24), 0.5);
+  const shape = ratio >= 3 ? "来回型" : ratio >= 1.8 ? "有折返" : "单向型";
+  const shapeTip = ratio >= 3 ? "净变化骗人，鱼折腾过" : "";
+
   box.innerHTML = `
     <div class="card"><div class="k">当前气压</div><div class="v">${cur.toFixed(1)}${unit}</div></div>
     <div class="card"><div class="k">3 小时变压</div><div class="v ${cls(d3)}">${fmt(d3)}${unit}
       <small style="margin-left:6px">${word(d3)}</small></div></div>
     <div class="card"><div class="k">24 小时变压</div><div class="v ${cls(d24)}">${fmt(d24)}${unit}
       <small style="margin-left:6px">${word(d24)}</small></div></div>
+    <div class="card" title="${shapeTip}"><div class="k">24 小时路程 Σ|ΔP|</div><div class="v">${path24.toFixed(1)}${unit}
+      <small style="margin-left:6px">${shape}</small></div></div>
     <div class="card"><div class="k">窗口最高 / 最低</div><div class="v">${mx.toFixed(1)} / ${mn.toFixed(1)}${unit}</div></div>
     <div class="card"><div class="k">窗口波动</div><div class="v">${(mx-mn).toFixed(1)}${unit}</div></div>
     <div class="card"><div class="k">采样点数</div><div class="v">${P.length}<small>个</small></div></div>`;
@@ -877,7 +892,9 @@ def _level_data(args, online: bool = True) -> Tuple[List[dict], str]:
     note = ""
     if online:
         if level_mod.sync(args.level_dir) is None:
-            note = "本次抓取失败，显示的是已有档案 · 数据源 重庆市水文监测总站"
+            err = getattr(level_mod, "LAST_ERROR", "") or "未知错误"
+            note = (f"本次抓取失败（{err[:90]}），显示的是已有档案 · "
+                    f"数据源 重庆市水文监测总站")
     rows = level_mod.load_all(args.level_dir, days=args.level_days)
     if not note:
         note = (f"{level_mod.DISTRICT} · 站号 {level_mod.STCD} · 每小时整点更新 · "
