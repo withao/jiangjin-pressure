@@ -14,6 +14,19 @@ if errorlevel 1 goto failed
 :done
 echo.
 echo Done. Open: output\pressure.html
+echo.
+echo --- pushing water level archive ---
+git add data/level
+git diff --cached --quiet
+if not errorlevel 1 goto nopush
+git commit -q -m "data(level): local collect"
+git push origin main
+goto nopush2
+
+:nopush
+echo No new level data, nothing to push.
+
+:nopush2
 pause
 exit /b 0
 

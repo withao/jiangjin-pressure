@@ -137,9 +137,18 @@ def save(root: str, row: Dict) -> bool:
     return True
 
 
-def sync(root: str = LEVEL_DIR, quiet: bool = False) -> Optional[Dict]:
-    """抓一次 → 落盘 → 返回最新记录；失败返回 None（不抛，页面照常出）。"""
+def sync(root: str = LEVEL_DIR, quiet: bool = False, online: bool = True) -> Optional[Dict]:
+    """抓一次 → 落盘 → 返回最新记录；失败返回 None（不抛，页面照常出）。
+
+    online=False 时不联网，只回读已有档案的最后一条（给境外 runner 用：
+    重庆水文只对境内开放，GitHub 的机器连不上，抓了也是白等 90 秒）。
+    """
     global LAST_ERROR
+    if not online:
+        rows = load_all(root)
+        LAST_ERROR = ""
+        return {"t": rows[-1]["t"], "z": rows[-1]["z"], "wptn": None,
+                "usfl": None, "cached": True} if rows else None
     try:
         row = fetch_latest()
     except Exception as exc:  # noqa: BLE001

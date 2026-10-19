@@ -890,15 +890,21 @@ def _level_data(args, online: bool = True) -> Tuple[List[dict], str]:
     if getattr(args, "level_off", False) or level_mod is None:
         return [], "水位模块未启用"
     note = ""
-    if online:
+    offline = getattr(args, "level_offline", False)
+    if online and not offline:
         if level_mod.sync(args.level_dir) is None:
             err = getattr(level_mod, "LAST_ERROR", "") or "未知错误"
             note = (f"本次抓取失败（{err[:90]}），显示的是已有档案 · "
                     f"数据源 重庆市水文监测总站")
     rows = level_mod.load_all(args.level_dir, days=args.level_days)
     if not note:
-        note = (f"{level_mod.DISTRICT} · 站号 {level_mod.STCD} · 每小时整点更新 · "
-                f"数据源 重庆市水文监测总站")
+        if offline:
+            tail = (f"最后 {rows[-1]['t']:%m-%d %H:%M}" if rows else "暂无档案")
+            note = (f"档案由本机采集推送 · {tail} · 重庆水文仅对境内开放，"
+                    f"GitHub 机器连不上，故云端只读不抓")
+        else:
+            note = (f"{level_mod.DISTRICT} · 站号 {level_mod.STCD} · 每小时整点更新 · "
+                    f"数据源 重庆市水文监测总站")
     return rows, note
 
 
@@ -963,6 +969,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--level-days", type=int, default=14,
                     help="水位图回溯天数，默认 14")
     ap.add_argument("--level-off", action="store_true", help="不抓也不画水位")
+    ap.add_argument("--level-offline", action="store_true",
+                    help="只读已有水位档案、不联网（境外 runner 用：重庆水文只对境内开放）")
     args = ap.parse_args(argv)
 
     args.hours = max(1, min(args.hours, MAX_HOURS))
