@@ -4,6 +4,9 @@
 
 最终地址形如：`https://withao.github.io/jiangjin-pressure/`
 
+> **当前状态（2026-10-19 21:00）**：已部署成功，页面可访问，首次 workflow 全绿。
+> 仓库 `withao/jiangjin-pressure`（public），Pages 源 = GitHub Actions，已加 `push` 触发。
+
 ---
 
 ## 0. 三个先说清楚的结论
@@ -74,8 +77,12 @@ SSH 已确认可用（`ssh -T git@github.com` 返回 `Hi withao!`），不需要
 on:
   schedule:
     - cron: "*/15 * * * *"
+  push:
+    branches: [main]
   workflow_dispatch:
 ```
+
+> `push` 这一条是为了「改完代码立刻跑一轮」，不用等 cron 的整刻。**注意**：它只在 `main` 上生效。
 
 每轮做的事：抓最近 24h（15 分钟原生分辨率，96 个点）→ 渲染单文件 HTML → 上传 Pages artifact → 部署。
 

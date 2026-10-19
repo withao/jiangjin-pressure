@@ -331,7 +331,7 @@ __REFRESH__
   <h1>__PLACE__ · 气压曲线<span>间隔 __STEP__ 分钟</span></h1>
   <div class="sub">
     坐标 __LAT__°N, __LON__°E　海拔 __ELEV__ m<br>
-    数据源 Open-Meteo（15 分钟原生 → 线性插值）<br>
+    数据源 Open-Meteo（15 分钟原生分辨率）<br>
     生成于 __GEN__
   </div>
 </header>
@@ -354,7 +354,7 @@ __REFRESH__
 
 <footer>
   <div>气压变化 ≈ 天气系统的“脉搏”：3 小时变压 ≥ +1.0 hPa 为升压、≤ −1.0 hPa 为降压，中间为少变。</div>
-  <div>鼠标移动查看逐点数值 · 数据文件 data/pressure.csv</div>
+  <div>鼠标移动查看逐点数值 · 数据源 Open-Meteo</div>
 </footer>
 
 <script>
