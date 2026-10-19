@@ -5,6 +5,8 @@ name: pressure
 on:
   schedule:
     - cron: "*/15 * * * *"      # UTC，但每 15 分钟与时区无关
+  push:                         # 改代码/首次推送时立即跑一轮，不用等 cron
+    branches: [main]
   workflow_dispatch:            # 支持手动点一下立即跑
 
 permissions:
