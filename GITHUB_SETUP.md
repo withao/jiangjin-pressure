@@ -84,7 +84,7 @@ on:
 
 > `push` 这一条是为了「改完代码立刻跑一轮」，不用等 cron 的整刻。**注意**：它只在 `main` 上生效。
 
-每轮做的事：抓最近 24h（15 分钟原生分辨率，96 个点）→ 渲染单文件 HTML → 上传 Pages artifact → 部署。
+每轮做的事：抓最近 **72h**（15 分钟原生分辨率，288 个点）→ 渲染单文件 HTML（页面可切 6/24/72h，默认 24h）→ 上传 Pages artifact → 部署。
 
 页面上的「生成于」用的是**东八区时间**，不会因为 runner 是 UTC 而显示成早 8 小时。
 
@@ -112,7 +112,7 @@ on:
 | 想改 | 改哪里 |
 |---|---|
 | 地点 | `pressure.py` 顶部 `LAT, LON, PLACE` |
-| 曲线窗口 | workflow 里 `--hours 24` → 48 / 72 |
+| 默认显示窗口 | workflow 里 `--view 24` → 改 6 或 72（数据深度由 `--hours` 控制，已是上限 72） |
 | 采样间隔 | workflow 里 `--interval 15`（数据源原生就是 15，改成别的值等于插值造假数据） |
 | 默认看海平面气压 | workflow 里加 `--var m` |
 | 停止自动跑 | Actions → pressure → 右上 `...` → **Disable workflow** |

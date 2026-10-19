@@ -10,14 +10,17 @@
 ## 快速开始
 
 ```bash
-python pressure.py                 # 抓最近 24h，生成 HTML 曲线图
-python pressure.py --hours 48      # 曲线显示 48 小时（上限 72）
+python pressure.py                 # 抓 72h，页面默认看 24h
+python pressure.py --view 72       # 页面默认看 72h
+python pressure.py --view 6        # 页面默认看 6h
 python pressure.py --fetch-hours 2 # 只抓最近 2 小时（有档案累积时用，省流量）
 python pressure.py --watch         # 常驻：每 15 分钟抓一次、刷新图
-python pressure.py --plot-only     # 不联网，用已有 CSV 重画（同样只画 --hours 窗口）
+python pressure.py --plot-only     # 不联网，用已有 CSV 重画
 python pressure.py --var m         # 改看海平面气压
 python pressure.py --png           # 额外输出 PNG（需 matplotlib）
 ```
+
+页面上有 **6 / 24 / 72 小时** 三个切换按钮：数据一次性嵌进 HTML，切换不联网。
 
 Windows 双击：`run_once.bat`（抓一次）/ `run_watch.bat`（常驻）。
 
@@ -44,13 +47,16 @@ Windows 双击：`run_once.bat`（抓一次）/ `run_watch.bat`（常驻）。
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `--hours` | 24 | **曲线显示**窗口（小时），上限 72 |
+| `--hours` | 72 | **抓取并嵌入**的数据深度（小时），接口上限 72 |
+| `--view` | 24 | **页面默认显示**窗口；可切 6/24/72 |
 | `--fetch-hours` | 同 `--hours` | **每次联网抓取**回溯小时数；有本地档案累积时可设小值 |
 | `--interval` | 15 | 采样间隔（分钟）；数据源原生 15，改别的值等于插值 |
 | `--var` | s | `s` 本站气压 / `m` 海平面气压 |
 | `--watch` | 关 | 常驻模式，对齐到 :00/:15/:30/:45 采集 |
 | `--refresh` | 常驻 300，否则 0 | HTML 自动刷新秒数 |
 | `--csv` / `--html` | data/ · output/ | 自定义输出路径 |
+
+卡片里的 **3 小时变压**看“正在怎么变”，**24 小时变压**看“变了多少”——后者更接近一次天气过程对鱼的实际影响。
 
 ## 两种气压别混用
 

@@ -11,12 +11,15 @@
 
 用法
 ---------------------------------------------------------
-  python pressure.py                  # 抓最近 24 小时，出图（默认）
-  python pressure.py --hours 48       # 曲线显示 48 小时
-  python pressure.py --fetch-hours 2  # 只抓最近 2 小时（云端定时跑用这个）
+  python pressure.py                  # 抓 72 小时，页面默认显示 24 小时
+  python pressure.py --view 72        # 页面默认显示 72 小时
+  python pressure.py --view 6         # 页面默认显示 6 小时
+  python pressure.py --fetch-hours 2  # 只抓最近 2 小时（有档案累积时）
   python pressure.py --watch          # 常驻：每 15 分钟抓一次并刷新图
   python pressure.py --plot-only      # 不联网，用已有 CSV 重画
   python pressure.py --png            # 额外输出 PNG（需 matplotlib）
+
+页面上的「6 / 24 / 72 小时」按钮可随时切换，数据已一次性嵌入，切换不联网。
 
 产物
 ---------------------------------------------------------
@@ -309,6 +312,7 @@ __REFRESH__
   .card .v small{font-size:12px;color:var(--dim);font-weight:400;margin-left:3px}
   .up{color:#ff6b6b} .down{color:#3ddc97} .flat{color:var(--dim)}
   .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap}
+  .sep{width:1px;height:18px;background:var(--line);margin:0 2px}
   .btn{background:#1a212a;border:1px solid var(--line);color:var(--dim);padding:6px 14px;border-radius:7px;
        font-size:12.5px;cursor:pointer;transition:.15s}
   .btn:hover{color:var(--fg);border-color:#33404f}
@@ -341,8 +345,12 @@ __REFRESH__
 <div class="toolbar">
   <button class="btn on" data-k="s">本站气压</button>
   <button class="btn" data-k="m">海平面气压</button>
+  <span class="sep"></span>
+  <button class="btn" data-w="6">6 小时</button>
+  <button class="btn" data-w="24">24 小时</button>
+  <button class="btn" data-w="72">72 小时</button>
   <div class="legend">
-    <span><i class="dot" style="background:var(--accent)"></i>实测/模型值</span>
+    <span><i class="dot" style="background:var(--accent)"></i>模型值</span>
     <span id="range"></span>
   </div>
 </div>
@@ -353,7 +361,7 @@ __REFRESH__
 </div>
 
 <footer>
-  <div>气压变化 ≈ 天气系统的“脉搏”：3 小时变压 ≥ +1.0 hPa 为升压、≤ −1.0 hPa 为降压，中间为少变。</div>
+  <div>3 小时变压看“在变”，24 小时变压看“变到哪”——后者更接近鱼实际感受到的天气过程。</div>
   <div>鼠标移动查看逐点数值 · 数据源 Open-Meteo</div>
 </footer>
 
@@ -362,13 +370,23 @@ const DATA = __DATA__;
 const META = __META__;
 const COLORS = {s:"#4ea1ff", m:"#f0a35e"};
 let KEY = "s";
+let WIN = __VIEW__;              // 当前显示窗口（小时）
 
 const cv = document.getElementById("cv");
 const ctx = cv.getContext("2d");
 const wrap = document.getElementById("wrap");
 const tip = document.getElementById("tip");
 
-function pts(k){ return DATA.filter(d => d[k] !== null).map(d => ({t:new Date(d.t.replace(" ","T")), v:d[k]})); }
+function all(k){ return DATA.filter(d => d[k] !== null).map(d => ({t:new Date(d.t.replace(" ","T")), v:d[k]})); }
+
+// 只画最近 WIN 小时（以最后一个数据点为锚，避免本机时间与数据时区不一致）
+function pts(k){
+  const A = all(k);
+  if (!A.length) return A;
+  const end = A[A.length-1].t.getTime();
+  const S = A.filter(p => p.t.getTime() >= end - WIN*3600e3);
+  return S.length ? S : A;
+}
 
 function niceStep(raw){
   const p = Math.pow(10, Math.floor(Math.log10(raw||1)));
@@ -413,13 +431,17 @@ function draw(){
     ctx.strokeStyle = "#1e252e"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(pad.l, y+.5); ctx.lineTo(pad.l+iw, y+.5); ctx.stroke();
     ctx.fillStyle = "#8b97a6";
-    ctx.fillText(v.toFixed(stepY < 0.5 ? 1 : 0), pad.l - 10, y);
+    ctx.fillText(v.toFixed(stepY < 1 ? 1 : 0), pad.l - 10, y);
   }
 
-  // X 轴：每 3 小时一个刻度
+  // X 轴刻度：随窗口自适应（6h→1h，24h→3h，72h→6h），并按本地零点对齐
   ctx.textAlign = "center"; ctx.textBaseline = "top";
-  const tickMs = 3 * 3600e3;
-  let tt = Math.ceil(t0 / tickMs) * tickMs;
+  const spanH = (t1 - t0) / 3600e3;
+  const tickH = spanH <= 8 ? 1 : spanH <= 30 ? 3 : 6;
+  const tickMs = tickH * 3600e3;
+  const anchor = new Date(t0); anchor.setHours(0,0,0,0);
+  let tt = anchor.getTime();
+  while (tt < t0) tt += tickMs;
   while (tt <= t1){
     const x = X(tt);
     ctx.strokeStyle = "#1a2029";
@@ -472,25 +494,34 @@ function draw(){
 
 // 卡片
 function cards(){
-  const P = pts(KEY);
+  const P = pts(KEY), A = all(KEY);
   const box = document.getElementById("cards");
   if (!P.length){ box.innerHTML = ""; return; }
   const cur = P[P.length-1].v;
-  const t3 = P[P.length-1].t.getTime() - 3*3600e3;
-  let ref = P[0];
-  for (const p of P){ if (p.t.getTime() <= t3) ref = p; }
-  const chg = cur - ref.v;
-  const cls = chg >= 1.0 ? "up" : chg <= -1.0 ? "down" : "flat";
-  const word = chg >= 1.0 ? "升压" : chg <= -1.0 ? "降压" : "少变";
+  const end = P[P.length-1].t.getTime();
+
+  // 变压始终用完整数据算，不受当前窗口限制（看 6 小时也能知道 24 小时的变化）
+  function delta(h){
+    const from = end - h*3600e3;
+    let ref = A[0];
+    for (const p of A){ if (p.t.getTime() <= from) ref = p; else break; }
+    return cur - ref.v;
+  }
+  const d3 = delta(3), d24 = delta(24);
+  const cls = v => v >= 1.0 ? "up" : v <= -1.0 ? "down" : "flat";
+  const word = v => v >= 1.0 ? "升压" : v <= -1.0 ? "降压" : "少变";
+  const fmt = v => (v>=0?"+":"") + v.toFixed(1);
   const mx = Math.max(...P.map(p=>p.v)), mn = Math.min(...P.map(p=>p.v));
   const unit = "<small>hPa</small>";
 
   box.innerHTML = `
     <div class="card"><div class="k">当前气压</div><div class="v">${cur.toFixed(1)}${unit}</div></div>
-    <div class="card"><div class="k">3 小时变压</div><div class="v ${cls}">${chg>=0?"+":""}${chg.toFixed(1)}${unit}
-      <small style="margin-left:6px">${word}</small></div></div>
-    <div class="card"><div class="k">区间最高 / 最低</div><div class="v">${mx.toFixed(1)} / ${mn.toFixed(1)}${unit}</div></div>
-    <div class="card"><div class="k">波动幅度</div><div class="v">${(mx-mn).toFixed(1)}${unit}</div></div>
+    <div class="card"><div class="k">3 小时变压</div><div class="v ${cls(d3)}">${fmt(d3)}${unit}
+      <small style="margin-left:6px">${word(d3)}</small></div></div>
+    <div class="card"><div class="k">24 小时变压</div><div class="v ${cls(d24)}">${fmt(d24)}${unit}
+      <small style="margin-left:6px">${word(d24)}</small></div></div>
+    <div class="card"><div class="k">窗口最高 / 最低</div><div class="v">${mx.toFixed(1)} / ${mn.toFixed(1)}${unit}</div></div>
+    <div class="card"><div class="k">窗口波动</div><div class="v">${(mx-mn).toFixed(1)}${unit}</div></div>
     <div class="card"><div class="k">采样点数</div><div class="v">${P.length}<small>个</small></div></div>`;
 }
 
@@ -525,13 +556,23 @@ cv.addEventListener("mousemove", e => {
 });
 cv.addEventListener("mouseleave", () => { tip.style.opacity = 0; draw(); });
 
-document.querySelectorAll(".btn").forEach(b => {
-  b.addEventListener("click", () => {
-    document.querySelectorAll(".btn").forEach(x => x.classList.remove("on"));
-    b.classList.add("on");
-    KEY = b.dataset.k;
-    cards(); draw();
+function bind(sel, apply){
+  const btns = document.querySelectorAll(sel);
+  btns.forEach(b => {
+    b.addEventListener("click", () => {
+      btns.forEach(x => x.classList.remove("on"));
+      b.classList.add("on");
+      apply(b);
+      cards(); draw();
+    });
   });
+}
+bind("[data-k]", b => { KEY = b.dataset.k; });
+bind("[data-w]", b => { WIN = parseInt(b.dataset.w, 10); });
+
+// 按 __VIEW__ 点亮对应的窗口按钮
+document.querySelectorAll("[data-w]").forEach(b => {
+  if (parseInt(b.dataset.w, 10) === WIN) b.classList.add("on");
 });
 
 window.addEventListener("resize", draw);
@@ -543,7 +584,7 @@ cards(); draw();
 
 
 def render_html(path: str, rows: Sequence[dict], meta: dict, step: int = SAMPLE_MIN,
-                refresh: int = 0) -> None:
+                refresh: int = 0, view: int = 24) -> None:
     data = [
         {
             "t": r["t"].strftime("%Y-%m-%d %H:%M"),
@@ -570,6 +611,7 @@ def render_html(path: str, rows: Sequence[dict], meta: dict, step: int = SAMPLE_
             .replace("__LON__", f"{m['lon']}")
             .replace("__ELEV__", "—" if m["elevation"] is None else f"{m['elevation']:.0f}")
             .replace("__STEP__", str(step))
+            .replace("__VIEW__", str(view))
             .replace("__GEN__", m["generated"])
             .replace("__DATA__", json.dumps(data, ensure_ascii=False, separators=(",", ":")))
             .replace("__META__", json.dumps(m, ensure_ascii=False)))
@@ -650,7 +692,7 @@ def run_once(args, base: Optional[List[dict]] = None) -> List[dict]:
     # CSV 是长期档案（全部保留），曲线只画请求窗口
     cut = now_local() - timedelta(hours=args.hours)
     window = [r for r in merged if r["t"] >= cut] or merged
-    render_html(args.html, window, meta, args.interval, args.refresh)
+    render_html(args.html, window, meta, args.interval, args.refresh, args.view)
 
     st = stats(window, args.var)
     if st:
@@ -678,12 +720,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         description="抓取重庆市江津区气压并按 20 分钟间隔绘制曲线",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("--hours", type=int, default=24, help=f"曲线显示窗口（小时），默认 24，上限 {MAX_HOURS}")
+    ap.add_argument("--hours", type=int, default=MAX_HOURS,
+                    help=f"抓取并嵌入的数据深度（小时），默认 {MAX_HOURS}（接口上限）；页面可切 6/24/72 查看")
     ap.add_argument("--fetch-hours", type=int, default=None,
                     help="每次联网抓取回溯小时数，默认同 --hours；有本地档案累积时可设小值（如 2）")
-    ap.add_argument("--interval", type=int, default=SAMPLE_MIN, help="采样间隔（分钟），默认 20")
+    ap.add_argument("--interval", type=int, default=SAMPLE_MIN, help="采样间隔（分钟），默认 15")
     ap.add_argument("--var", choices=["s", "m"], default="s",
                     help="s=本站气压（默认）  m=海平面气压")
+    ap.add_argument("--view", type=int, default=24,
+                    help="页面默认显示窗口（小时），可在页面上切 6/24/72，默认 24")
     ap.add_argument("--watch", action="store_true", help="常驻模式：每 20 分钟抓一次并刷新")
     ap.add_argument("--plot-only", action="store_true", help="不联网，用已有 CSV 重画")
     ap.add_argument("--png", action="store_true", help="额外输出 PNG（需 matplotlib）")
@@ -694,12 +739,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     args = ap.parse_args(argv)
 
     args.hours = max(1, min(args.hours, MAX_HOURS))
+    args.view = max(1, min(args.view, args.hours))
     if args.fetch_hours is None:
         args.fetch_hours = args.hours
     args.fetch_hours = max(1, min(args.fetch_hours, MAX_HOURS))
     if args.refresh is None:
         args.refresh = 300 if args.watch else 0
-    print(f"[{PLACE}] {LAT}°N {LON}°E · {args.interval} 分钟间隔 · 抓取 {args.fetch_hours}h / 显示 {args.hours}h")
+    print(f"[{PLACE}] {LAT}°N {LON}°E · {args.interval} 分钟间隔 · 抓取 {args.fetch_hours}h / 嵌入 {args.hours}h / 默认看 {args.view}h")
 
     if args.plot_only:
         rows = load_csv(args.csv)
@@ -712,7 +758,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not window:                      # 档案比窗口还旧，退回全部
             window = rows
         render_html(args.html, window, {"lat": LAT, "lon": LON, "elevation": None},
-                    args.interval, args.refresh)
+                    args.interval, args.refresh, args.view)
         st = stats(window, args.var)
         print(f"  {st['n']} 点 · {st['first']:%m-%d %H:%M} → {st['last']:%m-%d %H:%M}")
         print(f"  → {args.html}")

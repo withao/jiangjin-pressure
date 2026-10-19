@@ -36,7 +36,8 @@ jobs:
           TZ: Asia/Shanghai
         run: |
           python pressure.py \
-            --hours 24 \
+            --hours 72 \
+            --view 24 \
             --interval 15 \
             --html _site/index.html \
             --csv "$RUNNER_TEMP/pressure.csv"
